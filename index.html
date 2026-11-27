@@ -55,6 +55,56 @@
       </div>
     </section>
 
+    <section class="card preset-card" aria-labelledby="presetHeading">
+      <div class="card-head">
+        <div>
+          <h2 id="presetHeading">Pré-configuração automática</h2>
+          <p class="sub">Defina antes como organizar cada música identificada automaticamente.</p>
+        </div>
+        <button id="pickBaseDir" class="small primary" type="button">Escolher pasta base…</button>
+      </div>
+
+      <div class="preset-grid">
+        <div class="field">
+          <label for="presetFolder">Nome da pasta</label>
+          <input id="presetFolder" type="text" placeholder="Ex.: Minhas Músicas" value="Listen">
+        </div>
+
+        <div class="field">
+          <label for="presetLayout">Organização</label>
+          <select id="presetLayout">
+            <option value="separate">Pasta separada por música</option>
+            <option value="list">Lista única (mesma pasta)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="presetKind">Formato</label>
+          <select id="presetKind">
+            <option value="audio">Áudio</option>
+            <option value="video">Vídeo</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="presetQuality">Qualidade</label>
+          <select id="presetQuality"></select>
+        </div>
+      </div>
+
+      <div class="preset-footer">
+        <label class="checkbox-row">
+          <input id="presetAutoCreate" type="checkbox" checked>
+          Criar pasta e salvar detalhes automaticamente ao identificar
+        </label>
+        <label class="checkbox-row">
+          <input id="presetOpenYoutube" type="checkbox">
+          Abrir busca no YouTube automaticamente ao identificar
+        </label>
+        <span id="baseDirStatus" class="dir-pill">Nenhuma pasta base selecionada</span>
+      </div>
+    </section>
+
     <section class="grid">
       <article class="card">
         <h2>Reconhecimento</h2>
@@ -86,8 +136,10 @@
           </div>
 
           <div class="actions">
-            <button class="small primary" id="save" type="button">Salvar em uma pasta…</button>
+            <button class="small primary" id="applyPresetNow" type="button">Criar pasta agora</button>
+            <button class="small" id="save" type="button">Personalizar pasta…</button>
             <button class="small" id="copy" type="button">Copiar nome</button>
+            <a class="small" id="youtubeLink" target="_blank" rel="noopener noreferrer">YouTube ↗</a>
             <a class="small" id="official" target="_blank" rel="noopener noreferrer">Busca oficial ↗</a>
             <a class="small hidden" id="spotifyLink" target="_blank" rel="noopener noreferrer">Spotify ↗</a>
             <a class="small hidden" id="appleLink" target="_blank" rel="noopener noreferrer">Apple Music ↗</a>

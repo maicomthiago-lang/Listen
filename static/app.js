@@ -5,8 +5,23 @@ const CONTINUOUS_DELAY_MS = 2500;
 const TARGET_SAMPLE_RATE = 16000;
 const SILENCE_RMS_THRESHOLD = 0.002;
 const HISTORY_STORAGE_KEY = "listen.history.v1";
+const PRESET_STORAGE_KEY = "listen.preset.v1";
 const SESSION_TOKEN_KEY = "listen.audd_token.v1";
 const MAX_HISTORY_ITEMS = 25;
+
+const QUALITY_OPTIONS = {
+  audio: ["128 kbps", "192 kbps", "320 kbps", "Lossless"],
+  video: ["720p", "1080p", "1440p", "2160p (4K)"],
+};
+
+const DEFAULT_PRESET = {
+  folder: "Listen",
+  layout: "separate", // separate | list
+  kind: "audio", // audio | video
+  quality: "320 kbps",
+  autoCreate: true,
+  openYoutube: false,
+};
 
 const elements = {
   dot: $("#dot"),
@@ -37,12 +52,22 @@ const elements = {
   releaseDate: $("#releaseDate"),
   previewWrap: $("#previewWrap"),
   previewAudio: $("#previewAudio"),
+  applyPresetNow: $("#applyPresetNow"),
   save: $("#save"),
   copy: $("#copy"),
+  youtubeLink: $("#youtubeLink"),
   official: $("#official"),
   spotifyLink: $("#spotifyLink"),
   appleLink: $("#appleLink"),
   auddLink: $("#auddLink"),
+  pickBaseDir: $("#pickBaseDir"),
+  presetFolder: $("#presetFolder"),
+  presetLayout: $("#presetLayout"),
+  presetKind: $("#presetKind"),
+  presetQuality: $("#presetQuality"),
+  presetAutoCreate: $("#presetAutoCreate"),
+  presetOpenYoutube: $("#presetOpenYoutube"),
+  baseDirStatus: $("#baseDirStatus"),
   saveForm: $("#saveform"),
   kind: $("#kind"),
   qualityWrap: $("#qualitywrap"),
@@ -71,6 +96,8 @@ const state = {
   toastTimer: null,
   currentSong: null,
   history: [],
+  preset: { ...DEFAULT_PRESET },
+  baseDirHandle: null,
 };
 
 function toast(message) {
@@ -480,6 +507,7 @@ async function recognizeAudio(blob, filename, expectedSession) {
     addToHistory(songRecord);
     renderSong(songRecord);
     setStatus("Música identificada", "listening");
+    await handleAutoActions(songRecord);
   } catch (err) {
     if (err && err.name === "AbortError") {
       return;
@@ -553,6 +581,171 @@ function configureExternalLink(anchor, url) {
   }
 }
 
+function buildYoutubeSearchUrl(song, preset = state.preset) {
+  const baseTerms = `${song.artist || ""} ${song.title || ""}`.trim();
+  const extra = preset.kind === "audio" ? "official audio" : `official video ${preset.quality || ""}`.trim();
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${baseTerms} ${extra}`.trim())}`;
+}
+
+function populatePresetQuality(kind, selectedValue) {
+  const options = QUALITY_OPTIONS[kind] || QUALITY_OPTIONS.audio;
+  const fragment = document.createDocumentFragment();
+  for (const label of options) {
+    const opt = document.createElement("option");
+    opt.value = label;
+    opt.textContent = label;
+    fragment.appendChild(opt);
+  }
+  elements.presetQuality.replaceChildren(fragment);
+  elements.presetQuality.value = options.includes(selectedValue) ? selectedValue : options[0];
+}
+
+function loadPreset() {
+  try {
+    const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    state.preset = { ...DEFAULT_PRESET, ...(parsed && typeof parsed === "object" ? parsed : {}) };
+  } catch {
+    state.preset = { ...DEFAULT_PRESET };
+  }
+
+  elements.presetFolder.value = state.preset.folder;
+  elements.presetLayout.value = state.preset.layout;
+  elements.presetKind.value = state.preset.kind;
+  populatePresetQuality(state.preset.kind, state.preset.quality);
+  state.preset.quality = elements.presetQuality.value;
+  elements.presetAutoCreate.checked = Boolean(state.preset.autoCreate);
+  elements.presetOpenYoutube.checked = Boolean(state.preset.openYoutube);
+  syncManualFormFromPreset();
+  updateBaseDirStatus();
+}
+
+function savePresetFromUi() {
+  state.preset = {
+    folder: elements.presetFolder.value.trim() || DEFAULT_PRESET.folder,
+    layout: elements.presetLayout.value === "list" ? "list" : "separate",
+    kind: elements.presetKind.value === "video" ? "video" : "audio",
+    quality: elements.presetQuality.value,
+    autoCreate: elements.presetAutoCreate.checked,
+    openYoutube: elements.presetOpenYoutube.checked,
+  };
+  try {
+    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(state.preset));
+  } catch {
+    // Ignore storage quota errors.
+  }
+  syncManualFormFromPreset();
+  if (state.currentSong) {
+    elements.youtubeLink.href = buildYoutubeSearchUrl(state.currentSong, state.preset);
+  }
+}
+
+function syncManualFormFromPreset() {
+  elements.kind.value = state.preset.kind;
+  elements.qualityWrap.classList.toggle("hidden", state.preset.kind !== "video");
+  if (state.preset.kind === "video" && QUALITY_OPTIONS.video.includes(state.preset.quality)) {
+    elements.quality.value = state.preset.quality;
+  }
+}
+
+function updateBaseDirStatus() {
+  if (typeof window.showDirectoryPicker !== "function") {
+    elements.baseDirStatus.textContent = "Navegador sem acesso direto a pastas (usará download .txt)";
+    elements.baseDirStatus.classList.remove("ready");
+    elements.pickBaseDir.classList.add("hidden");
+    return;
+  }
+
+  if (state.baseDirHandle) {
+    elements.baseDirStatus.textContent = `Pasta base ativa: ${state.baseDirHandle.name}`;
+    elements.baseDirStatus.classList.add("ready");
+    elements.pickBaseDir.textContent = "Trocar pasta base…";
+  } else {
+    elements.baseDirStatus.textContent = "Escolha uma pasta base para criação automática";
+    elements.baseDirStatus.classList.remove("ready");
+    elements.pickBaseDir.textContent = "Escolher pasta base…";
+  }
+}
+
+async function ensureBaseDirectory(promptIfMissing = true) {
+  if (typeof window.showDirectoryPicker !== "function") return null;
+  if (state.baseDirHandle) return state.baseDirHandle;
+  if (!promptIfMissing) return null;
+
+  const picked = await window.showDirectoryPicker({ mode: "readwrite" }).catch(() => null);
+  if (picked) {
+    state.baseDirHandle = picked;
+    updateBaseDirStatus();
+  }
+  return state.baseDirHandle;
+}
+
+async function appendLineToFile(dirHandle, filename, line) {
+  const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+  const existingFile = await fileHandle.getFile();
+  const existingText = await existingFile.text();
+  const writable = await fileHandle.createWritable();
+  const prefix = existingText && !existingText.endsWith("\n") ? "\n" : "";
+  await writable.write(`${existingText}${prefix}${line}\n`);
+  await writable.close();
+}
+
+async function organizeSongWithPreset(song, { promptDir = false } = {}) {
+  const preset = state.preset;
+  const rootFolderName = sanitizeFolderName(preset.folder || DEFAULT_PRESET.folder);
+  const trackFolderName = sanitizeFolderName(`${song.artist || "Artista"} - ${song.title || "Faixa"}`);
+  const ytUrl = buildYoutubeSearchUrl(song, preset);
+  const summaryText = buildMetadataText(song, preset.layout === "list" ? rootFolderName : `${rootFolderName}/${trackFolderName}`, {
+    kind: preset.kind,
+    quality: preset.quality,
+    layout: preset.layout,
+    youtubeUrl: ytUrl,
+  });
+
+  if (typeof window.showDirectoryPicker !== "function") {
+    downloadTextFallback(`${trackFolderName}.txt`, summaryText);
+    toast(`Resumo “${trackFolderName}.txt” baixado (seu navegador não cria pastas diretamente).`);
+    return true;
+  }
+
+  const baseDir = await ensureBaseDirectory(promptDir);
+  if (!baseDir) {
+    toast("Selecione uma “Pasta base” na Pré-configuração para criar pastas automaticamente.");
+    return false;
+  }
+
+  try {
+    const rootDir = await baseDir.getDirectoryHandle(rootFolderName, { create: true });
+    const listEntry = `[${new Date(song.detectedAt || Date.now()).toLocaleString("pt-BR")}] ${song.artist || "Artista"} - ${song.title || "Faixa"} | ${preset.kind === "video" ? `Vídeo (${preset.quality})` : `Áudio (${preset.quality})`} | YouTube: ${ytUrl}`;
+
+    if (preset.layout === "list") {
+      await appendLineToFile(rootDir, "lista.txt", listEntry);
+      toast(`Adicionada à lista em “${rootFolderName}/lista.txt”.`);
+    } else {
+      const songDir = await rootDir.getDirectoryHandle(trackFolderName, { create: true });
+      const fileHandle = await songDir.getFileHandle("detalhes.txt", { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(summaryText);
+      await writable.close();
+      await appendLineToFile(rootDir, "lista.txt", listEntry);
+      toast(`Pasta “${rootFolderName}/${trackFolderName}” criada automaticamente.`);
+    }
+    return true;
+  } catch {
+    toast("Não foi possível gravar na pasta base. Clique em “Trocar pasta base…” para conceder permissão.");
+    return false;
+  }
+}
+
+async function handleAutoActions(song) {
+  if (state.preset.autoCreate) {
+    await organizeSongWithPreset(song, { promptDir: false });
+  }
+  if (state.preset.openYoutube) {
+    window.open(buildYoutubeSearchUrl(song, state.preset), "_blank", "noopener,noreferrer");
+  }
+}
+
 function renderSong(song) {
   state.currentSong = song;
   elements.empty.classList.add("hidden");
@@ -587,6 +780,7 @@ function renderSong(song) {
 
   const query = encodeURIComponent(`${song.title || ""} ${song.artist || ""} official`.trim());
   elements.official.href = `https://www.google.com/search?q=${query}`;
+  elements.youtubeLink.href = buildYoutubeSearchUrl(song, state.preset);
   configureExternalLink(elements.spotifyLink, song.spotify_url);
   configureExternalLink(elements.appleLink, song.apple_music_url);
   configureExternalLink(elements.auddLink, song.links);
@@ -673,14 +867,26 @@ function renderHistory() {
   elements.history.replaceChildren(fragment);
 }
 
-function buildMetadataText(song, folderName) {
+function buildMetadataText(song, folderName, options = {}) {
+  const kind = options.kind || elements.kind.value;
+  const quality = options.quality || (kind === "video" ? elements.quality.value : state.preset.quality);
+  const layoutLabel =
+    options.layout === "list"
+      ? "Lista única (mesma pasta)"
+      : options.layout === "separate"
+      ? "Pasta separada por música"
+      : null;
+  const youtubeUrl = options.youtubeUrl || buildYoutubeSearchUrl(song, state.preset);
+
   const lines = [
     `Faixa: ${song.title || "Desconhecida"}`,
     `Artista: ${song.artist || "Desconhecido"}`,
     song.album ? `Álbum: ${song.album}` : null,
     song.release_date ? `Lançamento: ${formatDate(song.release_date)}` : null,
     `Pasta: ${folderName}`,
-    `Formato preferido: ${elements.kind.value === "video" ? `Vídeo (${elements.quality.value})` : "Áudio"}`,
+    layoutLabel ? `Organização: ${layoutLabel}` : null,
+    `Formato preferido: ${kind === "video" ? `Vídeo (${quality})` : `Áudio (${quality})`}`,
+    `Busca no YouTube: ${youtubeUrl}`,
     song.links ? `Link AudD: ${song.links}` : null,
     song.spotify_url ? `Spotify: ${song.spotify_url}` : null,
     song.apple_music_url ? `Apple Music: ${song.apple_music_url}` : null,
@@ -782,6 +988,32 @@ function bindEvents() {
     await recognizeAudio(file, file.name || "audio.wav", session);
   });
 
+  elements.pickBaseDir.addEventListener("click", async () => {
+    const dir = await window.showDirectoryPicker({ mode: "readwrite" }).catch(() => null);
+    if (!dir) {
+      toast("Seleção de pasta base cancelada.");
+      return;
+    }
+    state.baseDirHandle = dir;
+    updateBaseDirStatus();
+    toast(`Pasta base “${dir.name}” configurada para criação automática.`);
+  });
+
+  elements.presetFolder.addEventListener("input", savePresetFromUi);
+  elements.presetLayout.addEventListener("change", savePresetFromUi);
+  elements.presetKind.addEventListener("change", () => {
+    populatePresetQuality(elements.presetKind.value, state.preset.quality);
+    savePresetFromUi();
+  });
+  elements.presetQuality.addEventListener("change", savePresetFromUi);
+  elements.presetAutoCreate.addEventListener("change", savePresetFromUi);
+  elements.presetOpenYoutube.addEventListener("change", savePresetFromUi);
+
+  elements.applyPresetNow.addEventListener("click", async () => {
+    if (!state.currentSong) return;
+    await organizeSongWithPreset(state.currentSong, { promptDir: true });
+  });
+
   elements.save.addEventListener("click", () => {
     elements.saveForm.classList.toggle("hidden");
   });
@@ -877,6 +1109,7 @@ function init() {
   if (typeof window.showDirectoryPicker !== "function") {
     elements.saveSubmit.textContent = "Baixar resumo da faixa (.txt)";
   }
+  loadPreset();
   bindEvents();
   loadHistory();
   updateControls();

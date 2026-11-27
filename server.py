@@ -242,6 +242,10 @@ def add_security_headers(response: Response) -> Response:
 
 @app.get("/")
 def home():
+    if "code" in request.args and "state" in request.args:
+        return youtube_callback()
+    if "error" in request.args and session.get("yt_oauth_state"):
+        return youtube_callback()
     return send_from_directory(ROOT, "index.html")
 
 

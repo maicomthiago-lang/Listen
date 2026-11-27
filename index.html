@@ -83,6 +83,7 @@
           <select id="presetKind">
             <option value="audio">Áudio</option>
             <option value="video">Vídeo</option>
+            <option value="both">Ambos (Áudio + Vídeo)</option>
           </select>
         </div>
 
@@ -102,6 +103,37 @@
           Abrir busca no YouTube automaticamente ao identificar
         </label>
         <span id="baseDirStatus" class="dir-pill">Nenhuma pasta base selecionada</span>
+      </div>
+
+      <div class="yt-box">
+        <div class="yt-head">
+          <div>
+            <strong>YouTube Premium — Playlist para download offline</strong>
+            <p class="notice" style="margin-top:2px">
+              Adicione automaticamente cada faixa à sua playlist no YouTube. No app do YouTube ou YouTube Music, marque essa playlist como <b>Download offline</b> para baixar automaticamente com YouTube Premium.
+            </p>
+          </div>
+          <div class="yt-head-actions">
+            <span id="ytStatus" class="dir-pill">YouTube desconectado</span>
+            <button id="ytConnectBtn" class="small primary" type="button">Conectar YouTube</button>
+            <button id="ytDisconnectBtn" class="small hidden" type="button">Desconectar</button>
+          </div>
+        </div>
+
+        <div class="yt-controls">
+          <div class="field">
+            <label for="presetYtPlaylist">Nome da playlist no YouTube</label>
+            <input id="presetYtPlaylist" type="text" placeholder="Ex.: Listen — Offline" value="Listen — Offline">
+          </div>
+          <label class="checkbox-row yt-auto-check">
+            <input id="presetAutoYoutubePlaylist" type="checkbox">
+            Adicionar automaticamente à playlist do YouTube ao identificar
+          </label>
+          <div id="ytPlaylistLinks" class="yt-links hidden">
+            <a id="openYtPlaylist" class="small" target="_blank" rel="noopener noreferrer">Abrir playlist no YouTube ↗</a>
+            <a id="openYtMusicPlaylist" class="small" target="_blank" rel="noopener noreferrer">Abrir no YouTube Music ↗</a>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -136,7 +168,8 @@
           </div>
 
           <div class="actions">
-            <button class="small primary" id="applyPresetNow" type="button">Criar pasta agora</button>
+            <button class="small primary" id="addToYtPlaylistBtn" type="button">+ Playlist YouTube</button>
+            <button class="small" id="applyPresetNow" type="button">Criar pasta agora</button>
             <button class="small" id="save" type="button">Personalizar pasta…</button>
             <button class="small" id="copy" type="button">Copiar nome</button>
             <a class="small" id="youtubeLink" target="_blank" rel="noopener noreferrer">YouTube ↗</a>
@@ -195,7 +228,10 @@
             <h2>Últimas identificações</h2>
             <p class="sub">Salvas localmente neste navegador</p>
           </div>
-          <button id="clearHistory" class="small ghost hidden" type="button">Limpar</button>
+          <div class="history-head-actions">
+            <button id="downloadHistory" class="small ghost hidden" type="button">⬇ Baixar lista</button>
+            <button id="clearHistory" class="small ghost hidden" type="button">Limpar</button>
+          </div>
         </div>
         <div id="history" class="history">
           <div class="empty" style="height:120px">Sua lista aparecerá aqui.</div>

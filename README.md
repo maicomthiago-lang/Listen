@@ -35,7 +35,18 @@ python -m unittest discover -s tests -v
 - **Otimização de áudio**: downsampling para WAV mono 16 kHz e detecção de silêncio para evitar chamadas desnecessárias à API.
 - **Upload de arquivo de áudio**: identifique faixas a partir de arquivos locais (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.webm`, até 10 MB).
 - **Metadados ricos**: capa do álbum, data de lançamento, player de prévia (quando fornecido pelo provedor) e links diretos para Spotify, Apple Music, página da faixa e busca oficial.
-- **Histórico persistente**: salvo em `localStorage`, clicável para reabrir resultados anteriores, com deduplicação consecutiva na escuta contínua e opção de limpar.
+- **Pré-configuração automática**: defina nome da pasta, organização (pasta separada ou lista única), formato (**Áudio**, **Vídeo** ou **Ambos**) e qualidade antes de ouvir.
+- **Integração oficial com YouTube Premium (Playlist offline)**: conecte sua conta Google/YouTube via OAuth 2.0 (`YouTube Data API v3`) para adicionar automaticamente cada música identificada (áudio, vídeo ou ambos) a uma playlist privada sua. Basta marcar essa playlist como **Download offline** no app oficial do YouTube ou YouTube Music para baixá-la automaticamente com YouTube Premium.
+- **Histórico persistente**: salvo em `localStorage`, clicável para reabrir resultados anteriores, com botões de **Download** individual, **+ YT** e **Baixar lista** no formato limpo.
+
+## Configurar YouTube Data API v3 (opcional)
+
+1. No [Google Cloud Console](https://console.cloud.google.com/), ative a **YouTube Data API v3**.
+2. Em **APIs e Serviços → Credenciais**, crie um **ID do cliente OAuth** (Aplicativo da Web).
+3. Cadastre o URI de redirecionamento autorizado:
+   - Local: `http://127.0.0.1:8000/api/youtube/callback`
+   - Vercel: `https://<seu-dominio>.vercel.app/api/youtube/callback`
+4. Defina `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `FLASK_SECRET_KEY` no `.env` (ou nas Environment Variables da Vercel).
 - **Organização segura**: cria a pasta após confirmação do usuário e opcionalmente gera `detalhes.txt` com metadados e links; em navegadores sem File System Access API, oferece download do resumo `.txt`.
 
 ## Publicar na Vercel

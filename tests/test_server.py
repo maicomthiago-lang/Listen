@@ -202,6 +202,80 @@ class ServerTestCase(unittest.TestCase):
                 os.environ.pop("LISTEN_TEST_A", None)
                 os.environ.pop("LISTEN_TEST_B", None)
 
+    def test_youtube_auth_returns_503_when_not_configured(self):
+        orig_id = os.environ.pop("GOOGLE_CLIENT_ID", None)
+        orig_secret = os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+        try:
+            response = self.client.get("/api/youtube/auth")
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(response.get_json()["code"], "youtube_not_configured")
+        finally:
+            if orig_id is not None:
+                os.environ["GOOGLE_CLIENT_ID"] = orig_id
+            if orig_secret is not None:
+                os.environ["GOOGLE_CLIENT_SECRET"] = orig_secret
+
+    def test_youtube_add_requires_connected_account(self):
+        response = self.client.post(
+            "/api/youtube/add",
+            json={"title": "Bohemian Rhapsody", "artist": "Queen", "kind": "both"},
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json()["code"], "youtube_not_connected")
+
+    @patch("server._add_video_to_playlist")
+    @patch("server._search_youtube_video")
+    @patch("server._find_or_create_playlist")
+    def test_youtube_add_both_adds_audio_and_video(self, mock_playlist, mock_search, mock_add):
+        mock_playlist.return_value = {"id": "PL123", "title": "Listen — Offline"}
+        mock_search.side_effect = [
+            {"video_id": "vid_audio", "title": "Song (Official Audio)", "url": "https://www.youtube.com/watch?v=vid_audio"},
+            {"video_id": "vid_video", "title": "Song (Official Video)", "url": "https://www.youtube.com/watch?v=vid_video"},
+        ]
+
+        with self.client.session_transaction() as sess:
+            sess["yt_access_token"] = "fake-token"
+            sess["yt_expires_at"] = 9999999999
+
+        response = self.client.post(
+            "/api/youtube/add",
+            json={
+                "title": "Bohemian Rhapsody",
+                "artist": "Queen",
+                "playlist_name": "Listen — Offline",
+                "kind": "both",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["playlist_id"], "PL123")
+        self.assertEqual(len(data["added"]), 2)
+        self.assertEqual(data["added"][0]["kind"], "audio")
+        self.assertEqual(data["added"][1]["kind"], "video")
+        self.assertEqual(mock_add.call_count, 2)
+
+    @patch("server._add_video_to_playlist")
+    @patch("server._search_youtube_video")
+    @patch("server._find_or_create_playlist")
+    def test_youtube_add_both_deduplicates_same_video_id(self, mock_playlist, mock_search, mock_add):
+        mock_playlist.return_value = {"id": "PL123", "title": "Listen — Offline"}
+        same = {"video_id": "same_id", "title": "Song", "url": "https://www.youtube.com/watch?v=same_id"}
+        mock_search.side_effect = [same, same]
+
+        with self.client.session_transaction() as sess:
+            sess["yt_access_token"] = "fake-token"
+            sess["yt_expires_at"] = 9999999999
+
+        response = self.client.post(
+            "/api/youtube/add",
+            json={"title": "Song", "artist": "Artist", "kind": "both"},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data["added"]), 1)
+        self.assertEqual(mock_add.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

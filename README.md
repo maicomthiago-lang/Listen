@@ -6,8 +6,7 @@ Protótipo local para reconhecer a música captada pelo microfone, revisar títu
 
 1. Instale Python 3.10 ou mais recente.
 2. No terminal, nesta pasta: `python -m pip install -r requirements.txt`
-3. Crie uma conta/token de API em [AudD](https://audd.io/). Configure `AUDD_API_TOKEN` como variável de ambiente antes de iniciar.
-   - PowerShell: `$env:AUDD_API_TOKEN="seu-token"`
+3. Para experimentar sem criar conta, configure o token público de demonstração do AudD: `$env:AUDD_API_TOKEN="test"` (PowerShell). Ele é compartilhado e limitado a 10 chamadas por dia; serve apenas para demonstração. Para uso próprio, crie uma conta/token em [AudD](https://audd.io/) e configure esse token em `AUDD_API_TOKEN`.
 4. Inicie: `python server.py`
 5. Abra `http://127.0.0.1:8000` em um navegador com suporte a `getUserMedia` e File System Access API (por exemplo, Chrome ou Edge). Autorize o microfone.
 
@@ -34,6 +33,6 @@ Fontes consultadas (26/11/2026): [documentação AudD](https://docs.audd.io/), [
 ## Limites atuais
 
 - Microfone capta o ambiente; capturar diretamente o áudio interno do sistema depende do navegador/OS e não está implementado.
-- Reconhecimento requer token e conexão com o AudD.
+- Reconhecimento requer token e conexão com o AudD. Na Vercel, `AUDD_API_TOKEN=test` permite apenas uma demonstração sujeita ao limite público compartilhado; para uso normal, cadastre seu token privado em **Project Settings → Environment Variables**.
 - A criação de pastas usa a File System Access API, disponível em navegadores compatíveis.
 - O modo contínuo mantém o microfone ativo com permissão explícita enquanto a página fica aberta.

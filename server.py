@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 import requests
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 ROOT = Path(__file__).resolve().parent
 AUDD_ENDPOINT = "https://api.audd.io/"
@@ -46,10 +47,12 @@ def load_dotenv(env_path: Path | None = None) -> None:
 load_dotenv()
 
 app = Flask(__name__, static_folder=str(ROOT / "static"), static_url_path="/static")
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("VERCEL"))
 
 
 def _youtube_oauth_config() -> tuple[str, str]:

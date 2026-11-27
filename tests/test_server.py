@@ -222,6 +222,31 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["Location"].endswith("/?youtube=denied"))
 
+    def test_youtube_auth_respects_https_proxy_headers(self):
+        orig_id = os.environ.get("GOOGLE_CLIENT_ID")
+        orig_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+        orig_redir = os.environ.pop("GOOGLE_REDIRECT_URI", None)
+        os.environ["GOOGLE_CLIENT_ID"] = "client-id"
+        os.environ["GOOGLE_CLIENT_SECRET"] = "client-secret"
+        try:
+            response = self.client.get(
+                "/api/youtube/auth",
+                headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "listen.vercel.app"},
+            )
+            self.assertEqual(response.status_code, 302)
+            self.assertIn("https%3A%2F%2Flisten.vercel.app%2Fapi%2Fyoutube%2Fcallback", response.headers["Location"])
+        finally:
+            if orig_id is None:
+                os.environ.pop("GOOGLE_CLIENT_ID", None)
+            else:
+                os.environ["GOOGLE_CLIENT_ID"] = orig_id
+            if orig_secret is None:
+                os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+            else:
+                os.environ["GOOGLE_CLIENT_SECRET"] = orig_secret
+            if orig_redir is not None:
+                os.environ["GOOGLE_REDIRECT_URI"] = orig_redir
+
     def test_youtube_add_requires_connected_account(self):
         response = self.client.post(
             "/api/youtube/add",

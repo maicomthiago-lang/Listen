@@ -125,6 +125,25 @@ a:focus-visible {
   color: #ffb3bc;
 }
 
+.token-setup {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.token-setup input {
+  background: #0d0f15;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 11px;
+  color: var(--text);
+  font-size: 13px;
+  min-width: 220px;
+}
+
 .hero {
   max-width: 690px;
   margin: 0 auto 48px;

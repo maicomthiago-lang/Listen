@@ -118,8 +118,10 @@ def status():
 def recognize():
     token = (os.environ.get("AUDD_API_TOKEN") or "").strip()
     if not token:
+        token = (request.headers.get("X-AudD-Token") or "").strip()
+    if not token:
         return jsonify(
-            error="Reconhecimento não configurado. Defina AUDD_API_TOKEN no servidor ou no arquivo .env.",
+            error="Reconhecimento não configurado. Defina AUDD_API_TOKEN no servidor/Vercel ou informe um token na interface.",
             code="missing_token",
         ), 503
 

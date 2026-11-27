@@ -57,6 +57,23 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.get_json()["code"], "missing_token")
 
+    @patch("server.requests.post")
+    def test_recognize_accepts_session_header_token_when_env_missing(self, mock_post):
+        os.environ.pop("AUDD_API_TOKEN", None)
+        fake_response = MagicMock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {"status": "success", "result": None}
+        mock_post.return_value = fake_response
+
+        response = self.client.post(
+            "/api/recognize",
+            headers={"X-AudD-Token": "test"},
+            data={"audio": (io.BytesIO(b"RIFF....WAVE"), "sample.wav")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.get_json()["found"])
+
     def test_recognize_returns_400_when_audio_missing(self):
         os.environ["AUDD_API_TOKEN"] = "test"
         response = self.client.post("/api/recognize")

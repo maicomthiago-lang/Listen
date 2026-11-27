@@ -5,12 +5,18 @@ const CONTINUOUS_DELAY_MS = 2500;
 const TARGET_SAMPLE_RATE = 16000;
 const SILENCE_RMS_THRESHOLD = 0.002;
 const HISTORY_STORAGE_KEY = "listen.history.v1";
+const SESSION_TOKEN_KEY = "listen.audd_token.v1";
 const MAX_HISTORY_ITEMS = 25;
 
 const elements = {
   dot: $("#dot"),
   status: $("#status"),
   banner: $("#banner"),
+  bannerText: $("#bannerText"),
+  tokenSetup: $("#tokenSetup"),
+  tokenInput: $("#tokenInput"),
+  saveTokenBtn: $("#saveTokenBtn"),
+  demoTokenBtn: $("#demoTokenBtn"),
   listen: $("#listen"),
   cancel: $("#cancel"),
   uploadBtn: $("#uploadBtn"),
@@ -84,13 +90,36 @@ function setStatus(text, tone = "idle") {
   if (tone === "error") elements.dot.classList.add("error");
 }
 
-function showBanner(message, tone = "") {
+function getSessionToken() {
+  try {
+    return (sessionStorage.getItem(SESSION_TOKEN_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function setSessionToken(token) {
+  try {
+    const clean = token.trim();
+    if (clean) {
+      sessionStorage.setItem(SESSION_TOKEN_KEY, clean);
+    } else {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    }
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function showBanner(message, tone = "", showSetup = false) {
   if (!message) {
     elements.banner.classList.add("hidden");
+    elements.tokenSetup.classList.add("hidden");
     return;
   }
-  elements.banner.textContent = message;
+  elements.bannerText.textContent = message;
   elements.banner.className = `banner${tone ? ` ${tone}` : ""}`;
+  elements.tokenSetup.classList.toggle("hidden", !showSetup);
 }
 
 function updateControls() {
@@ -413,8 +442,15 @@ async function recognizeAudio(blob, filename, expectedSession) {
     const formData = new FormData();
     formData.append("audio", blob, filename);
 
+    const headers = {};
+    const sessionToken = getSessionToken();
+    if (sessionToken) {
+      headers["X-AudD-Token"] = sessionToken;
+    }
+
     const response = await fetch("/api/recognize", {
       method: "POST",
+      headers,
       body: formData,
       signal: state.abortController.signal,
     });
@@ -671,25 +707,57 @@ async function checkServerStatus() {
     const response = await fetch("/api/status");
     if (!response.ok) return;
     const info = await response.json();
+    const sessionToken = getSessionToken();
+
     if (!info.configured) {
-      showBanner(
-        "AUDD_API_TOKEN não está configurado no servidor. Defina o token no ambiente ou no arquivo .env para habilitar o reconhecimento.",
-        "error"
-      );
+      if (sessionToken) {
+        showBanner(
+          sessionToken === "test"
+            ? "Modo de demonstração ativo nesta sessão (token público test, limite de 10 chamadas/dia)."
+            : "Token AudD configurado apenas para esta sessão.",
+          "warn",
+          false
+        );
+      } else {
+        showBanner(
+          "AUDD_API_TOKEN não está configurado no servidor (Vercel/ambiente). Configure a variável de ambiente ou ative um token abaixo para esta sessão:",
+          "error",
+          true
+        );
+      }
     } else if (info.demo_mode) {
       showBanner(
         "Modo de demonstração ativo (AUDD_API_TOKEN=test). Esse token público é limitado a 10 chamadas por dia.",
-        "warn"
+        "warn",
+        false
       );
     } else {
       showBanner("");
     }
   } catch {
-    showBanner("Não foi possível conectar ao servidor local. Inicie com `python server.py`.", "error");
+    showBanner("Não foi possível conectar ao servidor local. Inicie com `python server.py`.", "error", false);
   }
 }
 
 function bindEvents() {
+  elements.saveTokenBtn.addEventListener("click", () => {
+    const token = elements.tokenInput.value.trim();
+    if (!token) {
+      toast("Informe um token válido do AudD.");
+      return;
+    }
+    setSessionToken(token);
+    elements.tokenInput.value = "";
+    toast("Token salvo para esta sessão.");
+    checkServerStatus();
+  });
+
+  elements.demoTokenBtn.addEventListener("click", () => {
+    setSessionToken("test");
+    toast("Modo demonstração ativado para esta sessão.");
+    checkServerStatus();
+  });
+
   elements.once.addEventListener("click", () => setMode("once"));
   elements.continuous.addEventListener("click", () => setMode("continuous"));
   elements.listen.addEventListener("click", () => startCapture());

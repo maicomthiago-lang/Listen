@@ -215,6 +215,13 @@ class ServerTestCase(unittest.TestCase):
             if orig_secret is not None:
                 os.environ["GOOGLE_CLIENT_SECRET"] = orig_secret
 
+    def test_root_handles_youtube_oauth_denied_callback(self):
+        with self.client.session_transaction() as sess:
+            sess["yt_oauth_state"] = "state123"
+        response = self.client.get("/?error=access_denied")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/?youtube=denied"))
+
     def test_youtube_add_requires_connected_account(self):
         response = self.client.post(
             "/api/youtube/add",

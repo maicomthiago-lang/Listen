@@ -6,6 +6,7 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 
 app = Flask(__name__, static_folder=None)
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 ROOT = Path(__file__).resolve().parent
 
 
@@ -32,7 +33,9 @@ def recognize():
         response.raise_for_status()
         payload = response.json()
         if payload.get("status") != "success":
-            return jsonify(error="Recognition provider returned an error"), 502
+            detail = payload.get("error") or {}
+            message = detail.get("error_message") or detail.get("message") or "Recognition provider returned an error"
+            return jsonify(error=message), 502
         song = payload.get("result") or {}
         return jsonify(
             title=song.get("title"),
@@ -43,6 +46,11 @@ def recognize():
         )
     except requests.RequestException:
         return jsonify(error="Recognition provider is unavailable"), 502
+
+
+@app.errorhandler(413)
+def upload_too_large(_error):
+    return jsonify(error="Audio sample is too large (maximum 10 MB)"), 413
 
 
 if __name__ == "__main__":

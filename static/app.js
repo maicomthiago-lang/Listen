@@ -12,15 +12,18 @@ const MAX_HISTORY_ITEMS = 25;
 const QUALITY_OPTIONS = {
   audio: ["128 kbps", "192 kbps", "320 kbps", "Lossless"],
   video: ["720p", "1080p", "1440p", "2160p (4K)"],
+  both: ["720p + Áudio", "1080p + Áudio", "1440p + Áudio", "2160p (4K) + Áudio"],
 };
 
 const DEFAULT_PRESET = {
   folder: "Listen",
   layout: "separate", // separate | list
-  kind: "audio", // audio | video
+  kind: "audio", // audio | video | both
   quality: "320 kbps",
   autoCreate: true,
   openYoutube: false,
+  ytPlaylist: "Listen — Offline",
+  autoYoutubePlaylist: false,
 };
 
 const elements = {
@@ -52,6 +55,7 @@ const elements = {
   releaseDate: $("#releaseDate"),
   previewWrap: $("#previewWrap"),
   previewAudio: $("#previewAudio"),
+  addToYtPlaylistBtn: $("#addToYtPlaylistBtn"),
   applyPresetNow: $("#applyPresetNow"),
   save: $("#save"),
   copy: $("#copy"),
@@ -67,6 +71,14 @@ const elements = {
   presetQuality: $("#presetQuality"),
   presetAutoCreate: $("#presetAutoCreate"),
   presetOpenYoutube: $("#presetOpenYoutube"),
+  presetYtPlaylist: $("#presetYtPlaylist"),
+  presetAutoYoutubePlaylist: $("#presetAutoYoutubePlaylist"),
+  ytStatus: $("#ytStatus"),
+  ytConnectBtn: $("#ytConnectBtn"),
+  ytDisconnectBtn: $("#ytDisconnectBtn"),
+  ytPlaylistLinks: $("#ytPlaylistLinks"),
+  openYtPlaylist: $("#openYtPlaylist"),
+  openYtMusicPlaylist: $("#openYtMusicPlaylist"),
   baseDirStatus: $("#baseDirStatus"),
   saveForm: $("#saveform"),
   kind: $("#kind"),
@@ -77,6 +89,7 @@ const elements = {
   saveNotes: $("#saveNotes"),
   saveSubmit: $("#saveSubmit"),
   history: $("#history"),
+  downloadHistory: $("#downloadHistory"),
   clearHistory: $("#clearHistory"),
   toast: $("#toast"),
 };
@@ -98,6 +111,8 @@ const state = {
   history: [],
   preset: { ...DEFAULT_PRESET },
   baseDirHandle: null,
+  youtubeConfigured: false,
+  youtubeConnected: false,
 };
 
 function toast(message) {
@@ -581,9 +596,17 @@ function configureExternalLink(anchor, url) {
   }
 }
 
+function formatKindLabel(kind, quality) {
+  if (kind === "both") return `Ambos — Áudio + Vídeo (${quality})`;
+  if (kind === "video") return `Vídeo (${quality})`;
+  return `Áudio (${quality})`;
+}
+
 function buildYoutubeSearchUrl(song, preset = state.preset) {
   const baseTerms = `${song.artist || ""} ${song.title || ""}`.trim();
-  const extra = preset.kind === "audio" ? "official audio" : `official video ${preset.quality || ""}`.trim();
+  let extra = "official audio";
+  if (preset.kind === "video") extra = `official video ${preset.quality || ""}`.trim();
+  if (preset.kind === "both") extra = "official";
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${baseTerms} ${extra}`.trim())}`;
 }
 
@@ -616,18 +639,25 @@ function loadPreset() {
   state.preset.quality = elements.presetQuality.value;
   elements.presetAutoCreate.checked = Boolean(state.preset.autoCreate);
   elements.presetOpenYoutube.checked = Boolean(state.preset.openYoutube);
+  elements.presetYtPlaylist.value = state.preset.ytPlaylist || DEFAULT_PRESET.ytPlaylist;
+  elements.presetAutoYoutubePlaylist.checked = Boolean(state.preset.autoYoutubePlaylist);
   syncManualFormFromPreset();
   updateBaseDirStatus();
 }
 
 function savePresetFromUi() {
+  const selectedKind = ["audio", "video", "both"].includes(elements.presetKind.value)
+    ? elements.presetKind.value
+    : "audio";
   state.preset = {
     folder: elements.presetFolder.value.trim() || DEFAULT_PRESET.folder,
     layout: elements.presetLayout.value === "list" ? "list" : "separate",
-    kind: elements.presetKind.value === "video" ? "video" : "audio",
+    kind: selectedKind,
     quality: elements.presetQuality.value,
     autoCreate: elements.presetAutoCreate.checked,
     openYoutube: elements.presetOpenYoutube.checked,
+    ytPlaylist: elements.presetYtPlaylist.value.trim() || DEFAULT_PRESET.ytPlaylist,
+    autoYoutubePlaylist: elements.presetAutoYoutubePlaylist.checked,
   };
   try {
     localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(state.preset));
@@ -641,9 +671,10 @@ function savePresetFromUi() {
 }
 
 function syncManualFormFromPreset() {
-  elements.kind.value = state.preset.kind;
-  elements.qualityWrap.classList.toggle("hidden", state.preset.kind !== "video");
-  if (state.preset.kind === "video" && QUALITY_OPTIONS.video.includes(state.preset.quality)) {
+  const manualKind = state.preset.kind === "audio" ? "audio" : "video";
+  elements.kind.value = manualKind;
+  elements.qualityWrap.classList.toggle("hidden", manualKind !== "video");
+  if (manualKind === "video" && QUALITY_OPTIONS.video.includes(state.preset.quality)) {
     elements.quality.value = state.preset.quality;
   }
 }
@@ -737,9 +768,79 @@ async function organizeSongWithPreset(song, { promptDir = false } = {}) {
   }
 }
 
+function updateYoutubeStatusUi() {
+  if (!state.youtubeConfigured) {
+    elements.ytStatus.textContent = "Configure GOOGLE_CLIENT_ID no servidor";
+    elements.ytStatus.classList.remove("ready");
+    elements.ytConnectBtn.classList.remove("hidden");
+    elements.ytDisconnectBtn.classList.add("hidden");
+  } else if (state.youtubeConnected) {
+    elements.ytStatus.textContent = "YouTube conectado";
+    elements.ytStatus.classList.add("ready");
+    elements.ytConnectBtn.classList.add("hidden");
+    elements.ytDisconnectBtn.classList.remove("hidden");
+  } else {
+    elements.ytStatus.textContent = "YouTube desconectado";
+    elements.ytStatus.classList.remove("ready");
+    elements.ytConnectBtn.classList.remove("hidden");
+    elements.ytDisconnectBtn.classList.add("hidden");
+  }
+}
+
+async function addSongToYoutubePlaylist(song) {
+  if (!state.youtubeConnected) {
+    toast(
+      state.youtubeConfigured
+        ? "Clique em “Conectar YouTube” na Pré-configuração para adicionar à playlist."
+        : "Configure GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET no servidor/.env para usar a playlist do YouTube."
+    );
+    return false;
+  }
+
+  try {
+    const response = await fetch("/api/youtube/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: song.title,
+        artist: song.artist,
+        playlist_name: state.preset.ytPlaylist || DEFAULT_PRESET.ytPlaylist,
+        kind: state.preset.kind,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 401) {
+        state.youtubeConnected = false;
+        updateYoutubeStatusUi();
+      }
+      toast(payload.error || "Não foi possível adicionar à playlist do YouTube.");
+      return false;
+    }
+
+    if (isSafeHttpUrl(payload.playlist_url)) {
+      elements.openYtPlaylist.href = payload.playlist_url;
+      elements.openYtMusicPlaylist.href = payload.music_playlist_url || payload.playlist_url;
+      elements.ytPlaylistLinks.classList.remove("hidden");
+    }
+
+    const count = Array.isArray(payload.added) ? payload.added.length : 1;
+    toast(
+      `${count} item(ns) adicionado(s) à playlist “${payload.playlist_name}”. Ative Download offline no YouTube/YT Music.`
+    );
+    return true;
+  } catch {
+    toast("Falha ao comunicar com o servidor para atualizar a playlist do YouTube.");
+    return false;
+  }
+}
+
 async function handleAutoActions(song) {
   if (state.preset.autoCreate) {
     await organizeSongWithPreset(song, { promptDir: false });
+  }
+  if (state.preset.autoYoutubePlaylist) {
+    await addSongToYoutubePlaylist(song);
   }
   if (state.preset.openYoutube) {
     window.open(buildYoutubeSearchUrl(song, state.preset), "_blank", "noopener,noreferrer");
@@ -826,22 +927,56 @@ function addToHistory(song) {
   renderHistory();
 }
 
-function renderHistory() {
-  elements.clearHistory.classList.toggle("hidden", state.history.length === 0);
+async function downloadHistoryItem(item) {
+  const trackName = sanitizeFolderName(`${item.artist || "Artista"} - ${item.title || "Faixa"}`);
+  const ytUrl = buildYoutubeSearchUrl(item, state.preset);
+  const summaryText = buildMetadataText(item, trackName, {
+    kind: state.preset.kind,
+    quality: state.preset.quality,
+    layout: state.preset.layout,
+    youtubeUrl: ytUrl,
+  });
 
-  if (!state.history.length) {
+  if (state.baseDirHandle) {
+    await organizeSongWithPreset(item, { promptDir: false });
+  }
+  downloadTextFallback(`${trackName}.txt`, summaryText);
+  toast(`Download iniciado: “${trackName}.txt”.`);
+}
+
+function downloadAllHistory() {
+  if (!state.history.length) return;
+  const blocks = state.history.map((item) => {
+    const title = item.title || "Faixa sem título";
+    const artist = item.artist || "Artista desconhecido";
+    const time = formatTime(item.detectedAt);
+    return time ? `${title}\n${artist} — ${time}` : `${title}\n${artist}`;
+  });
+  downloadTextFallback("lista_identificacoes.txt", blocks.join("\n\n") + "\n");
+  toast(`Lista baixada com ${state.history.length} faixa(s).`);
+}
+
+function renderHistory() {
+  const isEmpty = state.history.length === 0;
+  elements.clearHistory.classList.toggle("hidden", isEmpty);
+  elements.downloadHistory.classList.toggle("hidden", isEmpty);
+
+  if (isEmpty) {
     elements.history.innerHTML = '<div class="empty" style="height:120px">Sua lista aparecerá aqui.</div>';
     return;
   }
 
   const fragment = document.createDocumentFragment();
   for (const item of state.history) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "track";
+    const row = document.createElement("div");
+    row.className = "track";
     if (state.currentSong && state.currentSong.detectedAt === item.detectedAt) {
-      button.classList.add("active");
+      row.classList.add("active");
     }
+
+    const selectBtn = document.createElement("button");
+    selectBtn.type = "button";
+    selectBtn.className = "track-select";
 
     const main = document.createElement("div");
     main.className = "track-main";
@@ -854,14 +989,33 @@ function renderHistory() {
     artist.textContent = item.artist || "Artista desconhecido";
 
     main.append(title, artist);
+    selectBtn.appendChild(main);
+    selectBtn.addEventListener("click", () => renderSong(item));
+
+    const side = document.createElement("div");
+    side.className = "track-side";
 
     const time = document.createElement("time");
     time.dateTime = item.detectedAt || "";
     time.textContent = formatTime(item.detectedAt);
 
-    button.append(main, time);
-    button.addEventListener("click", () => renderSong(item));
-    fragment.appendChild(button);
+    const ytBtn = document.createElement("button");
+    ytBtn.type = "button";
+    ytBtn.className = "track-yt";
+    ytBtn.textContent = "+ YT";
+    ytBtn.title = "Adicionar esta faixa à playlist offline do YouTube";
+    ytBtn.addEventListener("click", () => addSongToYoutubePlaylist(item));
+
+    const downloadBtn = document.createElement("button");
+    downloadBtn.type = "button";
+    downloadBtn.className = "track-download";
+    downloadBtn.textContent = "⬇ Download";
+    downloadBtn.title = "Baixar detalhes e links desta música";
+    downloadBtn.addEventListener("click", () => downloadHistoryItem(item));
+
+    side.append(time, ytBtn, downloadBtn);
+    row.append(selectBtn, side);
+    fragment.appendChild(row);
   }
 
   elements.history.replaceChildren(fragment);
@@ -885,7 +1039,7 @@ function buildMetadataText(song, folderName, options = {}) {
     song.release_date ? `Lançamento: ${formatDate(song.release_date)}` : null,
     `Pasta: ${folderName}`,
     layoutLabel ? `Organização: ${layoutLabel}` : null,
-    `Formato preferido: ${kind === "video" ? `Vídeo (${quality})` : `Áudio (${quality})`}`,
+    `Formato preferido: ${formatKindLabel(kind, quality)}`,
     `Busca no YouTube: ${youtubeUrl}`,
     song.links ? `Link AudD: ${song.links}` : null,
     song.spotify_url ? `Spotify: ${song.spotify_url}` : null,
@@ -913,6 +1067,10 @@ async function checkServerStatus() {
     const response = await fetch("/api/status");
     if (!response.ok) return;
     const info = await response.json();
+    state.youtubeConfigured = Boolean(info.youtube_configured);
+    state.youtubeConnected = Boolean(info.youtube_connected);
+    updateYoutubeStatusUi();
+
     const sessionToken = getSessionToken();
 
     if (!info.configured) {
@@ -1008,6 +1166,28 @@ function bindEvents() {
   elements.presetQuality.addEventListener("change", savePresetFromUi);
   elements.presetAutoCreate.addEventListener("change", savePresetFromUi);
   elements.presetOpenYoutube.addEventListener("change", savePresetFromUi);
+  elements.presetYtPlaylist.addEventListener("input", savePresetFromUi);
+  elements.presetAutoYoutubePlaylist.addEventListener("change", savePresetFromUi);
+
+  elements.ytConnectBtn.addEventListener("click", () => {
+    if (!state.youtubeConfigured) {
+      toast("Configure GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET no servidor/.env primeiro.");
+      return;
+    }
+    window.location.href = "/api/youtube/auth";
+  });
+
+  elements.ytDisconnectBtn.addEventListener("click", async () => {
+    await fetch("/api/youtube/logout", { method: "POST" }).catch(() => null);
+    state.youtubeConnected = false;
+    updateYoutubeStatusUi();
+    toast("Conta do YouTube desconectada.");
+  });
+
+  elements.addToYtPlaylistBtn.addEventListener("click", async () => {
+    if (!state.currentSong) return;
+    await addSongToYoutubePlaylist(state.currentSong);
+  });
 
   elements.applyPresetNow.addEventListener("click", async () => {
     if (!state.currentSong) return;
@@ -1032,6 +1212,8 @@ function bindEvents() {
   elements.kind.addEventListener("change", () => {
     elements.qualityWrap.classList.toggle("hidden", elements.kind.value !== "video");
   });
+
+  elements.downloadHistory.addEventListener("click", downloadAllHistory);
 
   elements.clearHistory.addEventListener("click", () => {
     state.history = [];
@@ -1104,6 +1286,22 @@ function bindEvents() {
   });
 }
 
+function handleYoutubeRedirectFeedback() {
+  const params = new URLSearchParams(window.location.search);
+  const yt = params.get("youtube");
+  if (!yt) return;
+  if (yt === "connected") {
+    toast("Conta do YouTube conectada! Agora você pode adicionar faixas à sua playlist offline.");
+  } else if (yt === "denied") {
+    toast("Autorização do YouTube cancelada.");
+  } else {
+    toast("Não foi possível concluir a conexão com o YouTube.");
+  }
+  params.delete("youtube");
+  const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+  window.history.replaceState({}, "", cleanUrl);
+}
+
 function init() {
   buildMeterBars();
   if (typeof window.showDirectoryPicker !== "function") {
@@ -1113,6 +1311,7 @@ function init() {
   bindEvents();
   loadHistory();
   updateControls();
+  handleYoutubeRedirectFeedback();
   checkServerStatus();
 }
 
